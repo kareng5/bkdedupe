@@ -59,8 +59,15 @@ one bookmark per line. A line with no `<A HREF="...">` tag (the DOCTYPE,
 
 ## Limitations
 
-- Matches URLs by exact string comparison. `https://x.com` and
-  `https://x.com/` are treated as different bookmarks.
+- Before comparing, URLs are normalized: scheme and host are lowercased, a
+  default port (`:80` on `http`, `:443` on `https`) is dropped, a trailing
+  slash on the path is ignored, and query parameters are reordered. So
+  `https://x.com` and `HTTPS://X.com/` are treated as the same bookmark, but
+  `http://x.com` and `https://x.com` are not, since that's a real difference
+  in what gets fetched. The output line itself is left exactly as it was
+  read - normalization only affects what counts as a duplicate.
+- The host case-insensitivity above is host-only; nothing in the path or
+  query is case-folded, since some servers treat path case as significant.
 - Assumes one bookmark tag per line, which is what every major browser
   produces but is not guaranteed by the format itself.
 - Only understands `HREF="..."` with double quotes.

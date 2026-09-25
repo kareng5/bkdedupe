@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"net/url"
 	"regexp"
+	"strings"
 )
 
 // Netscape Bookmark File Format (what Chrome, Firefox and Safari all export
@@ -32,16 +34,17 @@ func dedupe(r io.Reader, w io.Writer, log io.Writer, reportOnly bool) (stats, er
 		line, readErr := reader.ReadString('\n')
 		if len(line) > 0 {
 			keep := true
-			if url, ok := extractHref(line); ok {
+			if href, ok := extractHref(line); ok {
 				s.total++
-				if _, dup := seen[url]; dup {
+				key := normalizeURL(href)
+				if _, dup := seen[key]; dup {
 					s.duplicates++
 					keep = false
 					if reportOnly {
-						fmt.Fprintln(log, url)
+						fmt.Fprintln(log, href)
 					}
 				} else {
-					seen[url] = struct{}{}
+					seen[key] = struct{}{}
 				}
 			}
 			if keep && !reportOnly {
@@ -66,4 +69,38 @@ func extractHref(line string) (string, bool) {
 		return "", false
 	}
 	return m[1], true
+}
+
+// normalizeURL builds the key used for duplicate comparison. It folds
+// together URLs that a browser treats as the same page but that come out
+// as different strings depending on which device or import produced them:
+// scheme case, host case, an explicit default port, a trailing slash on the
+// path, and query parameter order. If the href doesn't parse as a URL at
+// all (a bookmarklet's javascript: href, for example) it's compared as-is,
+// since there's nothing safe to normalize.
+func normalizeURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+
+	if (u.Scheme == "http" && strings.HasSuffix(u.Host, ":80")) ||
+		(u.Scheme == "https" && strings.HasSuffix(u.Host, ":443")) {
+		u.Host = u.Host[:strings.LastIndex(u.Host, ":")]
+	}
+
+	if u.Path == "" {
+		u.Path = "/"
+	} else if u.Path != "/" {
+		u.Path = strings.TrimSuffix(u.Path, "/")
+	}
+
+	// url.Values.Encode sorts by key, which is enough to make
+	// ?a=1&b=2 and ?b=2&a=1 compare equal.
+	u.RawQuery = u.Query().Encode()
+
+	return u.String()
 }
